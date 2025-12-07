@@ -1,0 +1,8 @@
+.venv
+/input_data
+.DS_Store
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.streamlit/
+*.egg-info/
