@@ -72,15 +72,24 @@ def get_available_years():
 
 @st.cache_data(ttl=3600)
 def get_utm_zones_for_year(year: int):
-    """Get available UTM zones for a specific year."""
+    """Get available UTM zones for a specific year, sorted numerically."""
     conn = get_duckdb_connection()
     result = conn.execute(f"""
         SELECT DISTINCT utm_zone 
         FROM '{PARQUET_URL}' 
         WHERE year = {year}
-        ORDER BY utm_zone
     """).fetchall()
-    return [r[0] for r in result]
+    zones = [r[0] for r in result]
+    
+    # Sort UTM zones: extract number and hemisphere, sort by number then N before S
+    def utm_sort_key(zone):
+        # Extract numeric part and hemisphere (e.g., "10N" -> (10, "N"))
+        num = int(''.join(c for c in zone if c.isdigit()))
+        hemisphere = zone[-1] if zone[-1] in 'NS' else 'N'
+        # N comes before S (0 vs 1)
+        return (num, 0 if hemisphere == 'N' else 1)
+    
+    return sorted(zones, key=utm_sort_key)
 
 @st.cache_data(ttl=3600)
 def get_tiles_for_selection(year: int, utm_zone: str):
