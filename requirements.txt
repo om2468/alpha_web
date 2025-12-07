@@ -1,6 +1,0 @@
-rasterio
-numpy
-scikit-learn
-matplotlib
-scipy
-geopandas
