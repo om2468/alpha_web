@@ -1,156 +1,133 @@
-# AlphaEarth Embedding Analysis
+# AlphaEarth Similarity Explorer
 
-A Python toolkit for exploring and analyzing [AlphaEarth](https://www.alphaearthdata.com/) satellite imagery embeddings. This project replicates and extends the techniques demonstrated in [Element84's blog post on exploring AlphaEarth embeddings](https://element84.com/machine-learning/exploring-alphaearth-embeddings/).
+A cloud-based web application for exploring [AlphaEarth](https://www.alphaearthdata.com/) satellite imagery embeddings using cosine similarity. Stream massive embedding datasets directly from the cloud without downloading anything.
+
+🌐 **[Try it live on Streamlit Cloud](https://alpha-web.streamlit.app)**
 
 ## What is AlphaEarth?
 
-AlphaEarth provides **pixel-level embedding vectors** derived from satellite imagery. Each pixel in an image is represented as a **64-dimensional vector** that encodes semantic information about that location—essentially a "fingerprint" of what the land looks like and represents.
+AlphaEarth provides **pixel-level embedding vectors** derived from satellite imagery. Each pixel is represented as a **64-dimensional vector** that encodes semantic information about that location—a "fingerprint" of the land cover.
 
 These embeddings are:
-- **Pre-computed** from satellite imagery (Sentinel-2)
-- **Stored as GeoTIFFs** with 64 bands (one per dimension)
-- **Quantized to int8** values [-127, 127] for efficient storage
-- **Georeferenced** so they align with real-world coordinates
+- **Pre-computed** from Sentinel-2 satellite imagery
+- **Stored as Cloud Optimized GeoTIFFs (COGs)** with 64 bands
+- **Quantized to int8** for efficient storage
+- **Georeferenced** with full coordinate system metadata
+
+## Features
+
+- 🗺️ **Interactive tile browser** - Select from 30,000+ tiles globally
+- 🔍 **Cosine similarity explorer** - Click any pixel to find similar areas
+- 📊 **Real-time statistics** - Histograms, thresholds, coverage metrics
+- 💾 **GeoTIFF export** - Download georeferenced similarity maps and masks
+- ☁️ **100% cloud-based** - No downloads, no local storage needed
+
+## The Magic of Cloud Optimized GeoTIFFs (COGs)
+
+This app demonstrates how **COGs enable efficient access to massive raster datasets** without downloading entire files.
+
+### How COGs Work
+
+A Cloud Optimized GeoTIFF contains **pre-computed resolution pyramids** (overviews) baked into a single file:
+
+```
+┌─────────────────────────────────────┐
+│           COG File Structure        │
+├─────────────────────────────────────┤
+│  Header (tile index, metadata)      │  ← ~1KB
+├─────────────────────────────────────┤
+│  Full Resolution (10000 x 10000)    │  ← Level 0
+├─────────────────────────────────────┤
+│  Overview 1 (5000 x 5000)           │  ← 2x downsample
+├─────────────────────────────────────┤
+│  Overview 2 (2500 x 2500)           │  ← 4x downsample
+├─────────────────────────────────────┤
+│  Overview 3 (1250 x 1250)           │  ← 8x downsample
+├─────────────────────────────────────┤
+│  Overview 4 (625 x 625)             │  ← 16x downsample
+└─────────────────────────────────────┘
+```
+
+### HTTP Range Requests
+
+When you select a downsample factor (e.g., 8x), the app:
+
+1. **Reads the header** (~1KB) to find where the 8x overview lives
+2. **Fetches only those bytes** via HTTP Range Request
+3. **Returns pre-downsampled data** - no computation needed!
+
+```
+GET /file.tif
+Range: bytes=0-1023           # Header only
+
+GET /file.tif  
+Range: bytes=450000-460000    # Just the overview tiles needed
+```
+
+**Result**: A 500MB GeoTIFF loads in seconds by downloading only ~1-2MB.
+
+### Why This Matters for Embeddings
+
+AlphaEarth embeddings are **64-band GeoTIFFs** - each pixel has 64 values. At full resolution, these files are huge. But with COGs:
+
+- **Downsampled embeddings preserve semantic meaning** - a 8x8 average of forest pixels still represents "forest"
+- **Interactive exploration becomes possible** - load any tile in seconds
+- **No preprocessing required** - the pyramids are pre-built
+
+This technique works for any high-dimensional raster data: hyperspectral imagery, model outputs, feature maps, etc.
 
 ## How It Works
 
 ### Embedding Space
 
 The 64-dimensional embedding space captures semantic meaning:
-- **Similar land cover types** (forests, water, urban areas) cluster together in this space
-- **Cosine similarity** between vectors measures how semantically similar two pixels are
+- **Similar land cover types** (forests, water, urban) cluster together
+- **Cosine similarity** measures how semantically similar two pixels are
 - Values range from -1 (opposite) to +1 (identical)
 
 ### De-quantization
 
-AlphaEarth embeddings are stored as int8 values and must be converted back to floats:
+AlphaEarth embeddings are stored as int8 and converted back to floats:
 
 ```python
 def dequantize(value):
     return ((value / 127.5) ** 2) * sign(value)
 ```
 
-This non-linear transformation recovers the original embedding values from the compressed storage format.
+## Quick Start
 
-## Project Components
-
-### 1. Jupyter Notebook (`notebooks/alphaearth_analysis.ipynb`)
-
-A comprehensive analysis notebook demonstrating 8 techniques:
-
-| Section | Technique | Description |
-|---------|-----------|-------------|
-| 1 | Setup | Load data, handle NoData values, memory optimization |
-| 2 | False Color Composite | Visualize 3 embedding dimensions as RGB |
-| 3 | Individual Dimensions | Explore what each of the 64 dimensions represents |
-| 4 | PCA | Reduce 64D → 3D for visualization |
-| 5 | K-Means Clustering | Unsupervised land cover classification |
-| 6 | Cosine Similarity | Find similar areas to a reference point |
-| 7 | Change Detection | Compare embeddings between 2018 and 2024 |
-| 8 | Interactive Exploration | Combine techniques for analysis |
-
-### 2. Streamlit App (`similarity_explorer.py`)
-
-An interactive web tool for similarity search:
-
-- **Click-to-select**: Click anywhere on the image to select a reference point
-- **Real-time similarity**: See which pixels are most similar to your selection
-- **Adjustable threshold**: Fine-tune what counts as "similar"
-- **GeoTIFF export**: Download results for use in GIS software
-
-## Tools & Technologies
-
-| Tool | Purpose |
-|------|---------|
-| **Python 3.x** | Core programming language |
-| **NumPy** | Array operations and linear algebra |
-| **Rasterio** | Reading/writing GeoTIFF files |
-| **Matplotlib** | Visualization and plotting |
-| **scikit-learn** | PCA, K-Means, and other ML algorithms |
-| **Streamlit** | Interactive web application |
-| **streamlit-image-coordinates** | Click-to-select functionality |
-| **Jupyter** | Interactive notebook environment |
-
-## Data Format
-
-### Input GeoTIFFs
-
-- **Dimensions**: 8192 × 8192 pixels (original resolution)
-- **Bands**: 64 (one per embedding dimension)
-- **Data type**: int8 [-127, 127]
-- **NoData value**: -128
-- **CRS**: EPSG:32630 (UTM Zone 30N)
-- **Location**: Somerset, UK
-
-### Memory Optimization
-
-Full-resolution data requires ~4GB per year. The tools include **downsampling** (default 4×) to work efficiently on machines with limited RAM (tested on 16GB MacBook M2).
-
-## Usage
-
-### Jupyter Notebook
+### Run Locally
 
 ```bash
-cd notebooks
-jupyter notebook alphaearth_analysis.ipynb
+# Clone the repo
+git clone https://github.com/om2468/alpha_web.git
+cd alpha_web
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the app
+streamlit run similarity_explorer_cloud.py
 ```
 
-### Streamlit App
+### Deploy to Streamlit Cloud
 
-```bash
-streamlit run similarity_explorer.py
-```
+1. Fork this repo
+2. Go to [share.streamlit.io](https://share.streamlit.io)
+3. Deploy `similarity_explorer_cloud.py`
 
-Then open http://localhost:8501 in your browser.
+## Tech Stack
 
-## Project Structure
+- **Streamlit** - Web interface
+- **Rasterio + GDAL** - COG streaming via `/vsicurl/`
+- **DuckDB** - Query remote Parquet tile index
+- **Plotly** - Interactive maps
+- **NumPy** - Similarity computation
 
-```
-alpha/
-├── README.md                 # This file
-├── similarity_explorer.py    # Streamlit interactive app
-├── notebooks/
-│   └── alphaearth_analysis.ipynb  # Analysis notebook
-├── input_data/
-│   ├── xbckr5wa0l2omaauu-*.tiff   # 2018 embeddings
-│   └── xks7764uu0jo1h8jh-*.tiff   # 2024 embeddings
-└── .venv/                    # Python virtual environment
-```
+## Data Source
 
-## Key Concepts
-
-### Cosine Similarity
-
-Measures the angle between two vectors, ignoring magnitude:
-
-$$\text{similarity} = \frac{\mathbf{a} \cdot \mathbf{b}}{|\mathbf{a}| \cdot |\mathbf{b}|}$$
-
-- **1.0** = identical direction (same land cover type)
-- **0.0** = orthogonal (unrelated)
-- **-1.0** = opposite direction
-
-### PCA (Principal Component Analysis)
-
-Reduces 64 dimensions to 3 for RGB visualization while preserving maximum variance. Helps reveal structure in the embedding space.
-
-### K-Means Clustering
-
-Groups pixels into K clusters based on embedding similarity. Effectively performs unsupervised land cover classification.
-
-### Change Detection
-
-Compares embeddings from different years:
-- **Euclidean distance** between 2018 and 2024 vectors
-- High distance = significant change (development, deforestation, etc.)
-- Low distance = stable land cover
-
-## References
-
-- [Element84 Blog: Exploring AlphaEarth Embeddings](https://element84.com/machine-learning/exploring-alphaearth-embeddings/)
-- [AlphaEarth Data](https://www.alphaearthdata.com/)
-- [Rasterio Documentation](https://rasterio.readthedocs.io/)
-- [Streamlit Documentation](https://docs.streamlit.io/)
+Embeddings from [TGE Labs AlphaEarth Foundation](https://source.coop/tge-labs/aef) via Source Cooperative.
 
 ## License
 
-This project is for educational and research purposes, demonstrating techniques for working with AlphaEarth embedding data.
+MIT
