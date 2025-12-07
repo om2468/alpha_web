@@ -271,134 +271,150 @@ with st.spinner("Loading tile index..."):
         st.stop()
 
 # Create tabs for Map View and Explorer
-tab_map, tab_explorer = st.tabs(["🗺️ Map View", "🔍 Similarity Explorer"])
+# Check if we should auto-switch to explorer tab
+if st.session_state.get('active_tab') == 'explorer' and st.session_state.get('load_tile'):
+    tab_explorer, tab_map = st.tabs(["🔍 Similarity Explorer", "🗺️ Map View"])
+else:
+    tab_map, tab_explorer = st.tabs(["🗺️ Map View", "🔍 Similarity Explorer"])
 
 # ============== MAP VIEW TAB ==============
 with tab_map:
-    st.markdown("### Browse and select a tile to load")
+    st.markdown("### Click on a tile to select it")
     
-    # Filters at top
-    col_year, col_zone, col_downsample = st.columns([1, 1, 1])
+    # Year and UTM zone selection
+    col_year, col_utm = st.columns([1, 1])
     
     with col_year:
         map_year = st.selectbox("Year", years, index=0, key="map_year")
     
-    with col_zone:
-        # Load tiles to get UTM zones
-        with st.spinner("Loading tiles..."):
-            map_tiles_df = get_all_tiles_for_year(map_year)
-        utm_zones = sorted(map_tiles_df['utm_zone'].unique())
-        selected_zone = st.selectbox("UTM Zone", ["All Zones"] + utm_zones, key="utm_filter")
+    # Load UTM zones for the year
+    utm_zones = get_utm_zones_for_year(map_year)
     
-    with col_downsample:
-        map_downsample = st.slider(
-            "Resolution",
-            min_value=4, max_value=16, value=8,
-            help="Downsample factor (higher = faster load)",
-            key="map_downsample"
+    with col_utm:
+        selected_utm = st.selectbox(
+            "UTM Zone (required to show tiles)", 
+            utm_zones, 
+            index=None,
+            placeholder="Select a UTM zone...",
+            key="map_utm"
         )
     
-    # Apply zone filter
-    if selected_zone != "All Zones":
-        filtered_df = map_tiles_df[map_tiles_df['utm_zone'] == selected_zone]
+    if selected_utm is None:
+        st.info("👆 Select a UTM zone to display tiles on the map")
+        st.stop()
+    
+    # Load tiles for selected year and UTM zone
+    with st.spinner("Loading tiles..."):
+        map_tiles_df = get_tiles_for_selection(map_year, selected_utm)
+    
+    # Prepare data
+    map_tiles_df = map_tiles_df.copy()
+    map_tiles_df['center_lat'] = (map_tiles_df['wgs84_north'] + map_tiles_df['wgs84_south']) / 2
+    map_tiles_df['center_lon'] = (map_tiles_df['wgs84_west'] + map_tiles_df['wgs84_east']) / 2
+    map_tiles_df['display_name'] = map_tiles_df.apply(
+        lambda r: r['location'] if r['location'] else f"Tile {r['fid']}", axis=1
+    )
+    
+    st.caption(f"**{len(map_tiles_df):,}** tiles in UTM zone {selected_utm} for {map_year}. Click on a tile to select it.")
+    
+    # Create Plotly figure with points
+    fig = go.Figure(go.Scattergeo(
+        lon=map_tiles_df['center_lon'],
+        lat=map_tiles_df['center_lat'],
+        mode='markers',
+        marker=dict(
+            size=10,
+            color='rgba(100, 180, 200, 0.8)',
+            line=dict(width=1, color='rgba(50, 50, 50, 0.5)')
+        ),
+        text=map_tiles_df['display_name'],
+        hovertemplate='<b>%{text}</b><br>FID: %{customdata}<extra></extra>',
+        customdata=map_tiles_df['fid'],
+    ))
+    
+    # Calculate center of tiles
+    center_lat = map_tiles_df['center_lat'].mean()
+    center_lon = map_tiles_df['center_lon'].mean()
+    
+    fig.update_layout(
+        geo=dict(
+            projection_type='natural earth',
+            showland=True,
+            landcolor='rgb(243, 243, 243)',
+            showocean=True,
+            oceancolor='rgb(230, 240, 250)',
+            showcoastlines=True,
+            coastlinecolor='rgb(180, 180, 180)',
+            countrycolor='rgb(200, 200, 200)',
+            center=dict(lat=center_lat, lon=center_lon),
+            projection_scale=6,
+        ),
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=500,
+    )
+    
+    # Display map with selection
+    selected = st.plotly_chart(
+        fig, 
+        key="tile_map", 
+        on_select="rerun",
+        selection_mode="points",
+        use_container_width=True
+    )
+    
+    # Handle selection
+    selected_tile = None
+    if selected and "selection" in selected:
+        points = selected["selection"].get("points", [])
+        if points:
+            point_idx = points[0].get("point_index")
+            if point_idx is not None and 0 <= point_idx < len(map_tiles_df):
+                selected_tile = map_tiles_df.iloc[point_idx]
+    
+    st.markdown("---")
+    
+    # Show selection and load button
+    if selected_tile is not None:
+        tile_name = selected_tile['display_name']
+        
+        st.markdown("### ✅ Selected Tile")
+        
+        col_info, col_settings, col_action = st.columns([2, 1, 1])
+        
+        with col_info:
+            st.success(f"""
+            **📍 {tile_name}**  
+            FID: {selected_tile['fid']} | Zone: {selected_utm} | Year: {map_year}  
+            Bounds: {selected_tile['wgs84_west']:.2f}° to {selected_tile['wgs84_east']:.2f}°E, {selected_tile['wgs84_south']:.2f}° to {selected_tile['wgs84_north']:.2f}°N
+            """)
+        
+        with col_settings:
+            map_downsample = st.select_slider(
+                "Resolution",
+                options=[4, 8, 12, 16],
+                value=8,
+                help="Lower = better quality, slower",
+                key="map_downsample"
+            )
+        
+        with col_action:
+            st.markdown("####")  # Spacer
+            if st.button("📥 **Load This Tile**", type="primary", use_container_width=True):
+                st.session_state.load_tile = True
+                st.session_state.current_path = selected_tile['path']
+                st.session_state.current_downsample = map_downsample
+                st.session_state.selected_year = map_year
+                st.session_state.map_selected_tile = {
+                    'fid': selected_tile['fid'],
+                    'path': selected_tile['path'],
+                    'utm_zone': selected_utm,
+                    'location': tile_name
+                }
+                # Switch to explorer tab
+                st.session_state.active_tab = "explorer"
+                st.rerun()
     else:
-        filtered_df = map_tiles_df
-    
-    # Create polygons for filtered tiles only (for better performance)
-    tile_polygons = create_tile_polygons(filtered_df)
-    
-    # Layout: Map on left, selection on right
-    col_map, col_select = st.columns([2, 1])
-    
-    with col_map:
-        if tile_polygons:
-            avg_lat = np.mean([p['center_lat'] for p in tile_polygons])
-            avg_lon = np.mean([p['center_lon'] for p in tile_polygons])
-            
-            polygon_layer = pdk.Layer(
-                "PolygonLayer",
-                tile_polygons,
-                get_polygon="polygon",
-                get_fill_color=[100, 180, 200, 100],
-                get_line_color=[50, 50, 50, 200],
-                line_width_min_pixels=1,
-                pickable=True,
-                auto_highlight=True,
-                highlight_color=[255, 200, 0, 200],
-            )
-            
-            view_state = pdk.ViewState(
-                latitude=avg_lat,
-                longitude=avg_lon,
-                zoom=4 if selected_zone != "All Zones" else 2,
-                pitch=0,
-            )
-            
-            deck = pdk.Deck(
-                layers=[polygon_layer],
-                initial_view_state=view_state,
-                tooltip={
-                    "html": "<b>{location}</b><br/>Zone: {utm_zone}<br/>FID: {fid}<br/><i>Select from dropdown →</i>",
-                    "style": {"backgroundColor": "#333", "color": "white", "fontSize": "12px"}
-                },
-                map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
-            )
-            
-            st.pydeck_chart(deck, key="tile_map", use_container_width=True)
-            st.caption(f"Showing **{len(tile_polygons):,}** tiles. Hover for info.")
-        else:
-            st.warning("No tiles to display.")
-    
-    with col_select:
-        st.markdown("#### Select Tile")
-        
-        # Show current selection if any
-        if 'map_selected_tile' in st.session_state and st.session_state.map_selected_tile:
-            tile_info = st.session_state.map_selected_tile
-            st.success(f"✅ **{tile_info.get('location', 'Tile')}**")
-        
-        # Searchable dropdown
-        if len(filtered_df) > 0:
-            tile_options = filtered_df.apply(
-                lambda row: f"{row['location'] if row['location'] else 'Tile ' + str(row['fid'])}",
-                axis=1
-            ).tolist()
-            
-            selected_tile_idx = st.selectbox(
-                "Choose tile",
-                range(len(tile_options)),
-                format_func=lambda i: tile_options[i],
-                key="tile_dropdown",
-                index=None,
-                placeholder="Type to search..."
-            )
-            
-            if selected_tile_idx is not None:
-                row = filtered_df.iloc[selected_tile_idx]
-                
-                # Show tile info
-                st.markdown(f"""
-                **FID:** {row['fid']}  
-                **Zone:** {row['utm_zone']}  
-                **Bounds:**  
-                {row['wgs84_west']:.2f}° to {row['wgs84_east']:.2f}° E  
-                {row['wgs84_south']:.2f}° to {row['wgs84_north']:.2f}° N
-                """)
-                
-                if st.button("📥 Load This Tile", type="primary", use_container_width=True):
-                    st.session_state.load_tile = True
-                    st.session_state.current_path = row['path']
-                    st.session_state.current_downsample = map_downsample
-                    st.session_state.selected_year = map_year
-                    st.session_state.map_selected_tile = {
-                        'fid': row['fid'],
-                        'path': row['path'],
-                        'utm_zone': row['utm_zone'],
-                        'location': row['location'] if row['location'] else f"Tile {row['fid']}"
-                    }
-                    st.rerun()
-        else:
-            st.warning("No tiles match filters.")
+        st.info("👆 Click on a tile on the map to select it")
 
 # ============== SIMILARITY EXPLORER TAB ==============
 with tab_explorer:
@@ -573,39 +589,72 @@ with tab_explorer:
     st.pyplot(fig)
     plt.close()
 
-    # Export section (simplified for cloud - no GeoTIFF export)
+    # Export section - GeoTIFF export
     st.markdown("---")
-    st.subheader("💾 Export Results")
+    st.subheader("💾 Export Results (GeoTIFF)")
 
     # Get tile info for filenames
     export_fid = st.session_state.get('map_selected_tile', {}).get('fid', 'unknown')
     export_year = st.session_state.get('selected_year', 'unknown')
 
-    # Export as PNG
+    def create_geotiff(data, transform, crs, dtype='float32'):
+        """Create an in-memory GeoTIFF."""
+        buf = io.BytesIO()
+        
+        # Handle different data shapes
+        if len(data.shape) == 2:
+            count = 1
+            height, width = data.shape
+            write_data = data[np.newaxis, :, :]  # Add band dimension
+        else:
+            height, width, count = data.shape
+            write_data = np.transpose(data, (2, 0, 1))  # (H, W, C) -> (C, H, W)
+        
+        # Flip back since we flipped when loading
+        write_data = np.flip(write_data, axis=1)
+        
+        with rasterio.io.MemoryFile() as memfile:
+            with memfile.open(
+                driver='GTiff',
+                height=height,
+                width=width,
+                count=count,
+                dtype=dtype,
+                crs=crs,
+                transform=transform,
+                compress='lzw'
+            ) as dst:
+                dst.write(write_data.astype(dtype))
+            
+            buf.write(memfile.read())
+        
+        buf.seek(0)
+        return buf
+
     col1, col2 = st.columns(2)
+    
     with col1:
-        if st.button("📥 Download Similarity Map (PNG)"):
-            buf = io.BytesIO()
-            plt.imsave(buf, sim_colored, format='png')
-            buf.seek(0)
-            st.download_button(
-                label="⬇️ Download PNG",
-                data=buf,
-                file_name=f"similarity_map_{export_year}_{export_fid}.png",
-                mime="image/png"
-            )
+        st.markdown("**Similarity Map**")
+        st.caption("Cosine similarity values (0-1)")
+        sim_tiff = create_geotiff(similarity_map, geo_transform, geo_crs, dtype='float32')
+        st.download_button(
+            label="📥 Download Similarity GeoTIFF",
+            data=sim_tiff,
+            file_name=f"similarity_map_{export_year}_{export_fid}.tif",
+            mime="image/tiff"
+        )
 
     with col2:
-        if st.button("📥 Download Binary Mask (PNG)"):
-            buf = io.BytesIO()
-            plt.imsave(buf, binary_display, format='png')
-            buf.seek(0)
-            st.download_button(
-                label="⬇️ Download PNG",
-                data=buf,
-                file_name=f"similarity_mask_{export_year}_{export_fid}_thresh{threshold:.2f}.png",
-                mime="image/png"
-            )
+        st.markdown("**Binary Mask**")
+        st.caption(f"Areas with similarity ≥ {threshold:.2f}")
+        mask_data = mask.astype(np.uint8)  # 0 or 1
+        mask_tiff = create_geotiff(mask_data, geo_transform, geo_crs, dtype='uint8')
+        st.download_button(
+            label="📥 Download Mask GeoTIFF",
+            data=mask_tiff,
+            file_name=f"similarity_mask_{export_year}_{export_fid}_thresh{threshold:.2f}.tif",
+            mime="image/tiff"
+        )
 
     st.markdown("---")
     st.markdown("**💡 Tips:**")
