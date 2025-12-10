@@ -516,7 +516,7 @@ with tab_explorer:
     if not valid_mask[ref_y, ref_x]:
         st.warning(f"⚠️ Point ({ref_y}, {ref_x}) is invalid (NoData). Please click a different location.")
         st.subheader("Click on the image to select a valid point:")
-        rgb_uint8 = (rgb_image * 255).astype(np.uint8)
+        rgb_uint8 = (np.nan_to_num(rgb_image, nan=0.0) * 255).astype(np.uint8)
         coords = streamlit_image_coordinates(rgb_uint8, key="selector_invalid")
         if coords is not None:
             new_x = coords["x"]
