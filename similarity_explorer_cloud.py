@@ -375,7 +375,7 @@ with tab_map:
         key="tile_map", 
         on_select="rerun",
         selection_mode="points",
-        use_container_width=True
+        width="stretch"
     )
     
     # Handle selection
@@ -415,7 +415,7 @@ with tab_map:
         
         with col_action:
             st.markdown("####")  # Spacer
-            if st.button("📥 **Load This Tile**", type="primary", use_container_width=True):
+            if st.button("📥 **Load This Tile**", type="primary"):
                 st.session_state.load_tile = True
                 st.session_state.current_path = selected_tile['path']
                 st.session_state.current_downsample = map_downsample
@@ -546,6 +546,7 @@ with tab_explorer:
     rgb_with_marker[y_start:y_end, ref_x, :] = [1, 0, 0]
     rgb_with_marker[ref_y, x_start:x_end, :] = [1, 0, 0]
 
+    rgb_with_marker = np.nan_to_num(rgb_with_marker, nan=0.0)
     rgb_uint8 = (rgb_with_marker * 255).astype(np.uint8)
 
     # Clickable image
@@ -571,7 +572,7 @@ with tab_explorer:
         st.markdown("**Cosine Similarity Map**")
         sim_normalized = np.clip(similarity_map, 0, 1)
         sim_colored = cm.RdYlBu_r(sim_normalized)[:, :, :3]
-        st.image(sim_colored, caption="Red = High Similarity, Blue = Low", use_container_width=True)
+        st.image(sim_colored, caption="Red = High Similarity, Blue = Low", width="stretch")
 
     with col2:
         st.markdown(f"**Similar Areas (≥ {threshold:.2f})**")
@@ -582,7 +583,7 @@ with tab_explorer:
         binary_display = np.zeros((h, w, 3), dtype=np.float32)
         binary_display[mask] = [1, 1, 1]
         
-        st.image(binary_display, caption=f"{n_similar:,} pixels ({pct_similar:.1f}%)", use_container_width=True)
+        st.image(binary_display, caption=f"{n_similar:,} pixels ({pct_similar:.1f}%)", width="stretch")
 
     # Statistics
     st.markdown("---")
