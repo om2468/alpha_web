@@ -35,9 +35,16 @@ PARQUET_URL = "https://data.source.coop/tge-labs/aef/v1/annual/aef_index.parquet
 @st.cache_resource
 def get_duckdb_connection():
     """Create a DuckDB connection with httpfs extension for remote parquet."""
-    conn = duckdb.connect(":memory:")
-    conn.execute("INSTALL httpfs; LOAD httpfs;")
-    return conn
+    try:
+        conn = duckdb.connect(":memory:")
+        # Set memory limit for Streamlit Cloud (free tier has ~1GB)
+        conn.execute("SET memory_limit='512MB';")
+        conn.execute("SET threads=1;")
+        conn.execute("INSTALL httpfs; LOAD httpfs;")
+        return conn
+    except Exception as e:
+        st.error(f"Failed to initialize DuckDB: {e}")
+        raise
 
 @st.cache_data(ttl=3600)
 def load_tile_index():
