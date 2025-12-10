@@ -536,7 +536,7 @@ with tab_explorer:
         st.stop()
 
     # Create the clickable image with marker
-    st.subheader("👆 Click on the image to select a new reference point")
+    st.subheader("� Click on the image to select a new reference point")
 
     # Prepare RGB image with marker
     rgb_with_marker = rgb_image.copy()
