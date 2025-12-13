@@ -27,6 +27,58 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- Default map view ---
+# UTM zone is also used as the default tile set shown on first load.
+DEFAULT_UTM_ZONE = "34N"
+# Western Europe default view (Plotly geo projection)
+DEFAULT_MAP_CENTER_LAT = 46.0
+DEFAULT_MAP_CENTER_LON = 2.0
+DEFAULT_MAP_PROJECTION_SCALE = 4.5
+
+# Basic mobile responsiveness (stack columns, reduce padding, full-width buttons)
+st.markdown(
+        """
+        <style>
+            @media (max-width: 768px) {
+                .block-container {
+                    padding-left: 1rem;
+                    padding-right: 1rem;
+                    padding-top: 1rem;
+                }
+
+                /* Make Streamlit columns wrap/stack on small screens */
+                div[data-testid="stHorizontalBlock"] {
+                    flex-wrap: wrap !important;
+                    gap: 0.75rem !important;
+                }
+                div[data-testid="column"],
+                div[data-testid="stColumn"] {
+                    width: 100% !important;
+                    flex: 1 1 100% !important;
+                    min-width: 0 !important;
+                }
+
+                /* Full-width primary interactions on mobile */
+                div[data-testid="stButton"] > button,
+                div[data-testid="stDownloadButton"] > button {
+                    width: 100% !important;
+                }
+
+                /* Ensure plots and images never overflow */
+                .js-plotly-plot,
+                .plot-container {
+                    width: 100% !important;
+                }
+                img {
+                    max-width: 100% !important;
+                    height: auto !important;
+                }
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+)
+
 # --- Constants ---
 PARQUET_URL = "https://data.source.coop/tge-labs/aef/v1/annual/aef_index.parquet"
 
@@ -307,17 +359,18 @@ with tab_map:
     utm_zones = get_utm_zones_for_year(map_year)
     
     with col_utm:
+        default_utm_index = None
+        if DEFAULT_UTM_ZONE in utm_zones:
+            default_utm_index = utm_zones.index(DEFAULT_UTM_ZONE)
+        elif len(utm_zones) > 0:
+            default_utm_index = 0
+
         selected_utm = st.selectbox(
             "UTM Zone (required to show tiles)", 
             utm_zones, 
-            index=None,
-            placeholder="Select a UTM zone...",
+            index=default_utm_index,
             key="map_utm"
         )
-    
-    if selected_utm is None:
-        st.info("👆 Select a UTM zone to display tiles on the map")
-        st.stop()
     
     # Load tiles for selected year and UTM zone
     with st.spinner("Loading tiles..."):
@@ -348,9 +401,15 @@ with tab_map:
         customdata=map_tiles_df['fid'],
     ))
     
-    # Calculate center of tiles
-    center_lat = map_tiles_df['center_lat'].mean()
-    center_lon = map_tiles_df['center_lon'].mean()
+    # Default view: western Europe. For other zones, center on tiles.
+    if selected_utm == DEFAULT_UTM_ZONE:
+        center_lat = DEFAULT_MAP_CENTER_LAT
+        center_lon = DEFAULT_MAP_CENTER_LON
+        projection_scale = DEFAULT_MAP_PROJECTION_SCALE
+    else:
+        center_lat = map_tiles_df['center_lat'].mean()
+        center_lon = map_tiles_df['center_lon'].mean()
+        projection_scale = 6
     
     fig.update_layout(
         geo=dict(
@@ -363,7 +422,7 @@ with tab_map:
             coastlinecolor='rgb(180, 180, 180)',
             countrycolor='rgb(200, 200, 200)',
             center=dict(lat=center_lat, lon=center_lon),
-            projection_scale=6,
+            projection_scale=projection_scale,
         ),
         margin=dict(l=0, r=0, t=0, b=0),
         height=500,
@@ -371,11 +430,11 @@ with tab_map:
     
     # Display map with selection
     selected = st.plotly_chart(
-        fig, 
-        key="tile_map", 
+        fig,
+        key="tile_map",
         on_select="rerun",
         selection_mode="points",
-        width="stretch"
+        use_container_width=True,
     )
     
     # Handle selection
@@ -536,7 +595,7 @@ with tab_explorer:
         st.stop()
 
     # Create the clickable image with marker
-    st.subheader("� Click on the image to select a new reference point")
+    st.subheader("🖱️ Click on the image to select a new reference point")
 
     # Prepare RGB image with marker
     rgb_with_marker = rgb_image.copy()
@@ -572,7 +631,7 @@ with tab_explorer:
         st.markdown("**Cosine Similarity Map**")
         sim_normalized = np.clip(similarity_map, 0, 1)
         sim_colored = cm.RdYlBu_r(sim_normalized)[:, :, :3]
-        st.image(sim_colored, caption="Red = High Similarity, Blue = Low", width="stretch")
+        st.image(sim_colored, caption="Red = High Similarity, Blue = Low", use_container_width=True)
 
     with col2:
         st.markdown(f"**Similar Areas (≥ {threshold:.2f})**")
@@ -583,7 +642,7 @@ with tab_explorer:
         binary_display = np.zeros((h, w, 3), dtype=np.float32)
         binary_display[mask] = [1, 1, 1]
         
-        st.image(binary_display, caption=f"{n_similar:,} pixels ({pct_similar:.1f}%)", width="stretch")
+        st.image(binary_display, caption=f"{n_similar:,} pixels ({pct_similar:.1f}%)", use_container_width=True)
 
     # Statistics
     st.markdown("---")
