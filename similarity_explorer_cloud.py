@@ -434,7 +434,7 @@ with tab_map:
         key="tile_map",
         on_select="rerun",
         selection_mode="points",
-        use_container_width=True,
+        width="stretch",
     )
     
     # Handle selection
@@ -631,7 +631,7 @@ with tab_explorer:
         st.markdown("**Cosine Similarity Map**")
         sim_normalized = np.clip(similarity_map, 0, 1)
         sim_colored = cm.RdYlBu_r(sim_normalized)[:, :, :3]
-        st.image(sim_colored, caption="Red = High Similarity, Blue = Low", use_container_width=True)
+        st.image(sim_colored, caption="Red = High Similarity, Blue = Low", width="stretch")
 
     with col2:
         st.markdown(f"**Similar Areas (≥ {threshold:.2f})**")
@@ -642,7 +642,7 @@ with tab_explorer:
         binary_display = np.zeros((h, w, 3), dtype=np.float32)
         binary_display[mask] = [1, 1, 1]
         
-        st.image(binary_display, caption=f"{n_similar:,} pixels ({pct_similar:.1f}%)", use_container_width=True)
+        st.image(binary_display, caption=f"{n_similar:,} pixels ({pct_similar:.1f}%)", width="stretch")
 
     # Statistics
     st.markdown("---")
